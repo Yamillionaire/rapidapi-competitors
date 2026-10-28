@@ -46,8 +46,36 @@ def fetch_json(url, headers=None, timeout=25):
 
 
 def run(routes, port, name):
-    """routes: dict path -> handler(params: dict[str,str]) -> (status:int, payload:dict)"""
+    """routes: dict path -> handler(params: dict[str,str]) -> (status:int, payload:dict)
+
+    A route path may contain {param} segments (e.g. /v1/geo/cities/{cityId});
+    matched values are merged into params. Exact paths win over patterns.
+    """
     proxy_secret = os.environ.get("RAPIDAPI_PROXY_SECRET")
+    patterns = []
+    for route_path, route_handler in routes.items():
+        if "{" in route_path:
+            segments = [s for s in route_path.strip("/").split("/") if s]
+            patterns.append((segments, route_handler))
+
+    def match(path):
+        if path in routes:
+            return routes[path], {}
+        parts = [s for s in path.strip("/").split("/") if s]
+        for segments, route_handler in patterns:
+            if len(segments) != len(parts):
+                continue
+            captured = {}
+            ok = True
+            for seg, part in zip(segments, parts):
+                if seg.startswith("{") and seg.endswith("}"):
+                    captured[seg[1:-1]] = part
+                elif seg != part:
+                    ok = False
+                    break
+            if ok:
+                return route_handler, captured
+        return None, {}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -62,10 +90,11 @@ def run(routes, port, name):
                 if self.headers.get("X-RapidAPI-Proxy-Secret") != proxy_secret:
                     return self._send(401, {"error": "unauthorized",
                                             "detail": "Missing or invalid RapidAPI proxy secret."})
-            handler = routes.get(path)
+            handler, captured = match(path)
             if handler is None:
                 return self._send(404, {"error": "not_found",
                                         "detail": f"No endpoint at {path}. See /health for service info."})
+            params.update(captured)
             try:
                 status, payload = handler(params)
             except Exception as exc:  # explicit error object, never a bare stack trace to the client
