@@ -1,0 +1,33 @@
+# Render blueprint for the three RapidAPI competitor services (free plan).
+# Deploy from the user's Render account (workspace "Yamillionaire").
+# Each service is zero-dependency Python; Render sets PORT automatically.
+# RAPIDAPI_PROXY_SECRET must be set per service to the value RapidAPI shows in
+# the provider dashboard once the API is connected there (do not commit it).
+services:
+  - type: web
+    name: stablefx-currency-rates
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: "python currency/app.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+  - type: web
+    name: cleanlist-email-verifier
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: "python emailcheck/app.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+  - type: web
+    name: edgar-fundamentals
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: "python financials/app.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
