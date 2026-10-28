@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Keep-warm pinger for the four RapidAPI competitor services on Render free tier.
+# Keep-warm pinger for the five RapidAPI competitor services on Render free tier.
 # Render grants 750 free instance hours per WORKSPACE per month (shared).
-# Four always-on services would burn ~2,976h and get ALL services suspended,
-# so pings run only inside a daily window: 09:00-14:00 America/New_York.
-# Window math: 5h x 4 services x 31 days = 620h worst month, ~130h headroom
+# Five always-on services would burn ~3,720h and get ALL services suspended,
+# so pings run only inside a daily window: 09:00-13:00 America/New_York.
+# Window math: 4h x 5 services x 31 days = 620h worst month, ~130h headroom
 # for organic traffic. A spun-down service consumes no hours.
-# (Window shrank from 09:00-16:00 when the fourth service, geobase-cities,
-# was added 2026-10-28.)
+# (Window history: 09:00-16:00 for three services, 09:00-14:00 for four,
+# 09:00-13:00 for five, all set 2026-10-28.)
 # Usage: keepwarm.sh [--force]   (--force ignores the window, for manual tests)
 set -u
 LOG="$(dirname "$0")/keepwarm.log"
-URLS="https://stablefx-currency-rates.onrender.com/health https://cleanlist-email-verifier.onrender.com/health https://edgar-fundamentals.onrender.com/health https://geobase-cities.onrender.com/health"
+URLS="https://stablefx-currency-rates.onrender.com/health https://cleanlist-email-verifier.onrender.com/health https://edgar-fundamentals.onrender.com/health https://geobase-cities.onrender.com/health https://cleanextract-articles.onrender.com/health"
 
 if [ "${1:-}" != "--force" ]; then
   HOUR=$(TZ=America/New_York date +%H)
   HOUR=$((10#$HOUR))
-  if [ "$HOUR" -lt 9 ] || [ "$HOUR" -ge 14 ]; then
+  if [ "$HOUR" -lt 9 ] || [ "$HOUR" -ge 13 ]; then
     exit 0
   fi
 fi
