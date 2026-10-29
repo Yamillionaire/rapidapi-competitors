@@ -8,13 +8,12 @@
 # (Window history: 09:00-16:00 for three services, 09:00-14:00 for four,
 # 09:00-13:00 for five, 09:00-12:00 for six (all 2026-10-28),
 # 09:00-11:30 for seven, 09:00-11:00 for nine (both 2026-10-29).)
-# NOTE: the URL list below carries eight services; the ninth (the Google
-# Translate competitor) is added by its builder when it deploys. The window
-# is already sized for nine, so adding it changes no math.
+# NOTE: the URL list below carries all nine services (the Google News
+# competitor and the Google Translate competitor both landed 2026-10-29).
 # Usage: keepwarm.sh [--force]   (--force ignores the window, for manual tests)
 set -u
 LOG="$(dirname "$0")/keepwarm.log"
-URLS="https://stablefx-currency-rates.onrender.com/health https://cleanlist-email-verifier.onrender.com/health https://edgar-fundamentals.onrender.com/health https://geobase-cities.onrender.com/health https://cleanextract-articles.onrender.com/health https://swiftrewrite.onrender.com/health https://wordbase-dictionary.onrender.com/health https://newsbase-headlines.onrender.com/health"
+URLS="https://stablefx-currency-rates.onrender.com/health https://cleanlist-email-verifier.onrender.com/health https://edgar-fundamentals.onrender.com/health https://geobase-cities.onrender.com/health https://cleanextract-articles.onrender.com/health https://swiftrewrite.onrender.com/health https://wordbase-dictionary.onrender.com/health https://newsbase-headlines.onrender.com/health https://swifttranslate.onrender.com/health"
 
 if [ "${1:-}" != "--force" ]; then
   HOUR=$(TZ=America/New_York date +%H)
