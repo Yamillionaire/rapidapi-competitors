@@ -118,3 +118,18 @@ egress IP with HTTP 429, and Verisign dropped connections under burst
 load; both surface as structured errors after one retry, and both
 succeed when spaced (the unregistered .com case re-verified standalone:
 registered: false, TTL 60).
+
+Deployed verification (2026-10-29, https://whoisbase.onrender.com,
+Render srv-dbhl8lbbc2fs73epsfp0, commits cc715442 and 929fd827):
+/health live reporting 1,203 RDAP TLDs; RDAP records verified for
+google.com, web.dev, allegro.pl, finnair.fi. Port-43, blocked in the
+build sandbox, WORKS from Render: nic.at, eurid.eu, rnids.rs and
+example.de all returned real structured records (the live .rs answer
+exposed RNIDS's DNS-label nameserver format; the parser fix is commit
+929fd827 and .rs now returns 6 nameservers with clean statuses).
+Deployed cache behavior matches the local battery (repeat call
+cached: true; fresh=true refetches; unregistered .com registered:
+false at the 60s negative TTL). The proxy gate was verified locally
+with a test-only secret (401 without the header, /health open); the
+production secret is wired in the parent's Studio lane, so the
+deployed service intentionally carries no secret yet.

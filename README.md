@@ -141,6 +141,35 @@ Ultra $40/75,000mo; Mega $90/300,000mo hard. Incumbent: $25/$50/$100.
 REMAINING: Studio listing, proxy gate, publish, Spotlight (parent browser route;
 package at listings/newsbase-openapi.json, proof doc docs/newsbase-reliability.md).
 
+## 10. whoisbase/ - WhoisBase (vs Zozor54 Whois Lookup)
+Endpoints: /lookup?domain= (fresh/force optional), /domain/{domain}, /tlds, /health.
+Data: live RDAP via the IANA bootstrap (data.iana.org/rdap/dns.json) plus a
+port-43 fallback to the registry's own whois server for TLDs with no RDAP
+(.at, .rs, .eu, .de, .io, .ch) - $0, no key, the registries' own protocols.
+Complaint fixes are the product: a 300-second cache whose state and the
+record's age ride on every response, a fresh/force flag that genuinely
+bypasses it, structured JSON errors only (never a bare 504), and
+unregistered domains answered 200 with registered: false instead of blanks.
+DEPLOYED 2026-10-29: https://whoisbase.onrender.com
+(srv-dbhl8lbbc2fs73epsfp0; GitHub commits cc715442, 929fd827).
+TESTED: local port-43 parser battery 15/15 (canned .at/.eu/.rs records plus
+a local fake whois server; the first run caught plural-header and date-format
+bugs, fixed and re-verified); local live battery over RDAP (.com/.dev/.pl/
+.fi/.org full records, cache + fresh + force behavior, named 422s, gate 401
+without the test secret, /health open). Nominet .uk rate-limits the shared
+build-sandbox egress IP (429 surfaced as a structured error). Deployed
+verification: /health live at 1,203 RDAP TLDs; RDAP records live; PORT-43
+VERIFIED LIVE FROM RENDER - nic.at, eurid.eu, rnids.rs (6 nameservers after
+the DNS-label parser fix), example.de (DENIC restriction labeled); deployed
+cache, fresh and negative-result behavior all matching local results.
+Pricing (planned, hard limits): BASIC $0/250mo; PRO $0/10,000mo (the
+incumbent's $10 Pro, free); ULTRA $20/100,000mo; MEGA $70/500,000mo.
+Incumbent: $10/$30/$80. Keep-warm now covers ten services, 09:00-11:00 ET
+(620h worst month vs the 750 cap).
+REMAINING: Studio listing, proxy-secret wiring with gate verification,
+publish, Hub gateway test, Spotlight (parent browser route; package at
+listings/whoisbase-openapi.json, proof doc docs/whoisbase-freshness.md).
+
 ## Sequence
 Currency deploy-ready first (done at prototype level), Email second, Financials
 third once the quote feed is chosen. Nothing is published until the user approves
