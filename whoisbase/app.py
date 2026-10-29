@@ -365,17 +365,17 @@ def parse_whois_text(text, domain, tld, server):
     for i, line in enumerate(lines):
         stripped = line.strip()
         low = stripped.lower()
-        m = re.match(r"(?i)(?:nservers?|name\s*servers?|nameservers?|dns servers?)\s*:\s*(\S*)", stripped)
+        m = re.match(r"(?i)(?:nservers?|name\s*servers?|nameservers?|dns servers?|dns)\s*:\s*(.*)$", stripped)
         if m:
-            if m.group(1):
-                nameservers.append(m.group(1).rstrip(".").lower())
-                in_ns_block = False
-            else:
-                in_ns_block = True
+            for token in re.split(r"[,\s]+", m.group(1).strip()):
+                token = token.rstrip(".").lower()
+                if re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", token):
+                    nameservers.append(token)
+            in_ns_block = True  # registries may continue the list on indented lines
             continue
         if in_ns_block:
             host = re.fullmatch(r"([a-z0-9.-]+\.[a-z]{2,})(\s+\S+)?", low)
-            if host:
+            if host and line[:1] in (" ", "\t"):
                 nameservers.append(host.group(1).rstrip("."))
                 continue
             in_ns_block = False
@@ -389,7 +389,8 @@ def parse_whois_text(text, domain, tld, server):
             continue
         m = re.match(r"(?i)(?:domain\s+)?status\s*:\s*(.+)$", stripped)
         if m:
-            statuses.append(m.group(1).strip())
+            value = " ".join(t for t in m.group(1).split() if not t.startswith("http"))
+            statuses.append(value.strip())
             continue
         m = re.match(r"(?i)registrant\s*:\s*(.+)$", stripped)
         if m and record["registrant"] is None:
