@@ -22,7 +22,7 @@ from rapidapi_server import run
 MIN_CHARS = 10
 MAX_CHARS = 2000
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 MODES = {"standard": 0.4, "fluency": 0.6, "creative": 0.9}
 
 # Small built-in synonym map for the fallback engine (never the headline).
