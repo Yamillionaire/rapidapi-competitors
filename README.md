@@ -1,5 +1,22 @@
 # RapidAPI Competitor Services - Build Status
 
+DEPLOYED LIVE 2026-10-28 (free Render plan, from the public repo
+github.com/Yamillionaire/rapidapi-competitors, commit d3e7bf3):
+- Currency: https://stablefx-currency-rates.onrender.com (srv-dbh1vrtg1s2s73ci2pa0)
+- Email: https://cleanlist-email-verifier.onrender.com (srv-dbh1vtvf3r2c73atjoig)
+- Financials: https://edgar-fundamentals.onrender.com (srv-dbh1vv8ae00c73dl7obg)
+Live verification the same day: currency convert returned the 2026-10-28 ECB
+rate (100 USD = 89.823 EUR) with warm cache latency 0ms server-side; the email
+service loaded 224,300 disposable domains at runtime on Render and rejected
+idwager.com while accepting a real Gmail address; financials returned AAPL's
+19 annual revenue periods and a correct TSLA summary. Render is API-connected
+as custom.render (helper in ~/workspace/custom-connectors/custom.render/bin).
+Free-plan caveat: services spin down when idle, so a cold first request takes
+about 1-2 seconds; warm requests are milliseconds. NEXT STEP: create the three
+RapidAPI provider listings pointing at these base URLs, with pricing from the
+specs, each shown to the user as a preview before publishing. RAPIDAPI_PROXY_SECRET
+env vars get set on each service once the listings exist.
+
 User directed 2026-10-28: build all three competitors (Currency, Email, Yahu Financials).
 All three run on one shared zero-dependency Python scaffold (shared/rapidapi_server.py):
 stdlib HTTP server, explicit JSON error objects (never a silent 204 or bare 500),
@@ -80,7 +97,85 @@ $250/mo Tiingo startup redistribution tier), so the license is never an
 out-of-pocket cost. Then build the quote endpoints and related tickers
 (EDGAR industry peers), deploy, listing.
 
+## 8. swifttranslate/ - SwiftTranslate (vs Hark Translate Google Translate)
+
+BUILT AND DEPLOYED 2026-10-29 (queue #8, score 66; user authorized the full
+automated queue run in a voice call). Render srv-dbhfe08n74is73d8e020,
+https://swifttranslate-72rx.onrender.com (GitHub commit 8e8ed8a0). Endpoints
+mirror the incumbent's v2 surface with the same response envelope:
+GET /language/translate/v2 (q, target, optional source), /detect, /languages
+(107 codes), /health. Engine: Gemini 3.6 Flash (2.5-flash retired for new
+users; 3.8-flash too slow). Reliability design answers the incumbent's 84%
+service level and its unanswered "API unreachable" complaint: explicit JSON
+errors always, one engine retry, 24h cache serving stale (flagged) on engine
+error. No key yet: translate/detect return an explicit 503
+engine_not_configured; nothing is faked.
+TESTED 2026-10-29: local no-key suite (health, languages, 503s, 422s with
+limit-and-length wording, 5,001-char rejection), proxy gate (401 without
+header, /health open), bad-key engine errors as explicit 502s; engine verified
+with the production payload through the Gemini connector (Spanish to English
+correct, proper names intact, ~4.1s; French detection ~2.6s; two transient
+Google 503s observed during testing, hence the retry). Deployed /health live
+and reporting the engine as awaiting configuration.
+Pricing: BASIC $0/1,000mo; PRO $0/10,000mo (the incumbent's $9 tier, free);
+ULTRA $9/100,000mo; MEGA $29/500,000mo, hard limits.
+REMAINING: user adds GEMINI_API_KEY to this service's Render Environment
+(same one-time step as SwiftRewrite), then the Studio listing (PRIVATE),
+proxy secret + gate verification, publish, Hub gateway test, and the
+Spotlight post (docs/swifttranslate-reliability.md) - all via the parent's
+browser tasks. Keep-warm now covers nine services, 09:00-11:00 ET.
+
+## 9. newsbase/ - NewsBase Headlines (vs BFD Google News)
+Endpoints: /headlines, /search, /topic/{topic}, /source/{source}, /topics, /health.
+Data: Google News RSS (editions, search, topic sections) plus direct outlet RSS
+(BBC, NPR, The Guardian, Al Jazeera, NYT), $0, no key. Complaint fixes are the
+product: feeds are parsed into records and serialized by us (valid JSON by
+construction, never raw upstream passthrough), and there is no image proxy -
+publisher image URLs are returned directly or the field is omitted.
+DEPLOYED 2026-10-29: https://newsbase-headlines.onrender.com
+(srv-dbhfe5o473hc739rmad0). TESTED LIVE the same day: 11 live checks plus the
+16-case local set, every response strict-JSON-valid (27/27); GB and IN editions
+return their own headlines; a BBC story's image is the BBC CDN URL itself and
+answers HEAD 200 image/jpeg. Pricing (spec): Basic $0/250mo; Pro $15/10,000mo;
+Ultra $40/75,000mo; Mega $90/300,000mo hard. Incumbent: $25/$50/$100.
+REMAINING: Studio listing, proxy gate, publish, Spotlight (parent browser route;
+package at listings/newsbase-openapi.json, proof doc docs/newsbase-reliability.md).
+
 ## Sequence
 Currency deploy-ready first (done at prototype level), Email second, Financials
 third once the quote feed is chosen. Nothing is published until the user approves
 each listing preview. PayPal payout linking on RapidAPI is the user's own tap.
+
+## wordbase/ - WordBase Dictionary (vs dpventures WordsAPI)
+Built 2026-10-29 (Spec G, docs/spec-wordsapi-competitor.md). Endpoints mirror
+WordsAPI: /words/{word} full record, per-relation endpoints (definitions,
+synonyms, antonyms, examples, typeOf, hasTypes, partOf, hasParts, memberOf,
+hasMembers, substanceOf, hasSubstances, similarTo, also, derivation,
+pertainsTo, entails, cause), /pronunciation, /syllables, /frequency,
+/rhymes, /words search, /health. Data: WordNet 3.1 + CMUdict + FrequencyWords
+en_50k, all openly licensed, all downloaded at boot (WordNet tarball 16MB,
+too large for the snapshot route). Synsets parse on demand from an offset
+index (boot RSS about 151MB measured locally).
+TESTED LOCALLY 2026-10-29 (all passing): health reports 147,478 lemmas,
+126,052 pronunciations, 50,000 frequency words. serendipity returns the full
+record (definition, typeOf, derivation, 5 syllables, IPA, zipf 2.54); run
+returns 57 senses across noun and verb; dog typeOf, wheel partOf, car
+hasParts all correct; cat rhymes derived from CMU; geese resolves to goose
+and running to its base forms via the exception lists; unknown words return
+a clean documented 404 JSON error; bank (18 senses) answers in about 9ms.
+Pricing (planned, hard limits): BASIC $0/1,000mo, PRO $0/10,000mo (hook vs
+incumbent $10), ULTRA $39/300,000mo (vs $49), MEGA $79/1,000,000mo (vs $89),
+or the platform maximum at each price where RapidAPI caps lower.
+Keep-warm final fleet state: nine services, window 09:00-11:00 ET
+(2h x 9 x 31 = 558h worst month vs the 750 cap).
+DEPLOYED 2026-10-29: GitHub commit a18d1c7f; Render service
+wordbase-dictionary (srv-dbhfdb6c6qcc73f9geh0),
+https://wordbase-dictionary.onrender.com, deploy live. Live test battery
+matches the local results (health 147,478 lemmas; serendipity full
+record; run 57 senses; clean 404s; search; morphology). The user
+authorized the full launch run for this build on 2026-10-29 (publish
+gate lifted): the Studio listing (PRIVATE first), proxy-secret wiring
+with gate verification, publish, Hub gateway test, and Spotlight post
+from docs/wordbase-accuracy.md remain, run via the parent's browser
+tasks. Mark PUBLISHED LIVE in the registry once the gateway test
+returns 200.
