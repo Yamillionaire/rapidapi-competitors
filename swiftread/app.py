@@ -261,7 +261,14 @@ PARAGRAPH_PAUSE = base64.b64decode("//OEwAAAAAAAAAAAAEluZm8AAAAPAAAAEwAAC3AAHR0d
 
 # Bounded parallelism for chunk synthesis: wall-clock tracks the slowest
 # batch, not the sum of every chunk (the long-article timeout complaint).
-SYNTH_CONCURRENCY = 4
+SYNTH_CONCURRENCY = 6
+
+# Per-attempt ceiling for one chunk's synthesis. The free engine endpoint
+# occasionally stalls a stream without erroring; without a ceiling one
+# stalled chunk hangs the whole request forever (observed live: a
+# 114-character request never answered). A timed-out attempt is retried
+# once, then the request fails with a structured error instead of hanging.
+CHUNK_TIMEOUT = 75
 
 
 def split_paragraphs(text):
@@ -318,15 +325,18 @@ async def _synth_chunk(edge_tts, text, voice, rate):
 
 async def _synth_chunk_retry(edge_tts, text, voice, rate, sem):
     async with sem:
-        data = await _synth_chunk(edge_tts, text, voice, rate)
-        if data:
-            return data
-        # one retry: a transient engine hiccup on one chunk must not fail
-        # a whole article
-        data = await _synth_chunk(edge_tts, text, voice, rate)
-        if not data:
-            raise RuntimeError("empty audio from TTS engine")
-        return data
+        for attempt in range(2):
+            try:
+                data = await asyncio.wait_for(
+                    _synth_chunk(edge_tts, text, voice, rate),
+                    timeout=CHUNK_TIMEOUT)
+            except Exception:
+                if attempt == 1:
+                    raise
+                continue
+            if data:
+                return data
+        raise RuntimeError("empty audio from TTS engine")
 
 
 def synthesize(text, voice, rate):

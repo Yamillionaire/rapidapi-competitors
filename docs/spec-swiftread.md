@@ -22,7 +22,9 @@ tools, newsletters, and content platforms.
   edge-tts package. Zero marginal cost, no key, no paid TTS. Text is
   chunked at sentence boundaries within paragraphs (1,600 characters
   per chunk); chunks synthesize in parallel under a bounded pool
-  (concurrency 4) with one retry per chunk, and the MP3 segments are
+  (concurrency 6) with one retry per chunk and a 75-second
+  per-attempt ceiling, so a stalled engine stream fails one attempt
+  instead of hanging the request, and the MP3 segments are
   concatenated in reading order with a 0.4-second silence beat
   between paragraphs, so playback keeps the article's rhythm.
 - POST /read-url {url, voice?, rate?} -> audio/mpeg. POST /speak
