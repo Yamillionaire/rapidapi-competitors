@@ -40,7 +40,7 @@ from urllib.parse import urlparse
 
 SERVICE = "swiftread"
 MAX_CHARS = 15_000          # extracted or supplied text cap per request
-CHUNK_CHARS = 1_600         # per-synthesis chunk, packed at sentence boundaries
+CHUNK_CHARS = 1_200         # per-synthesis chunk, packed at sentence boundaries
 MAX_BODY = 300_000          # request body byte cap
 DEFAULT_VOICE = "en-US-AriaNeural"
 
@@ -261,14 +261,22 @@ PARAGRAPH_PAUSE = base64.b64decode("//OEwAAAAAAAAAAAAEluZm8AAAAPAAAAEwAAC3AAHR0d
 
 # Bounded parallelism for chunk synthesis: wall-clock tracks the slowest
 # batch, not the sum of every chunk (the long-article timeout complaint).
-SYNTH_CONCURRENCY = 6
+SYNTH_CONCURRENCY = 8
 
 # Per-attempt ceiling for one chunk's synthesis. The free engine endpoint
 # occasionally stalls a stream without erroring; without a ceiling one
 # stalled chunk hangs the whole request forever (observed live: a
 # 114-character request never answered). A timed-out attempt is retried
-# once, then the request fails with a structured error instead of hanging.
-CHUNK_TIMEOUT = 75
+# once, then the chunk is skipped and disclosed.
+CHUNK_TIMEOUT = 45
+
+# Whole-request synthesis budget. The platform path in front of the
+# service cuts responses that take much over ~100 s (observed live:
+# empty platform 502s at 130 s and 308 s), so synthesis stops starting
+# new work at 85 s and returns the audio completed by then, with the
+# unfinished chunks counted in X-SwiftRead-Chunks-Skipped. A response
+# with most of the article beats a dead connection with none of it.
+REQUEST_BUDGET = 85
 
 
 def split_paragraphs(text):
@@ -351,32 +359,37 @@ def synthesize(text, voice, rate):
 
     async def run_all():
         sem = asyncio.Semaphore(SYNTH_CONCURRENCY)
-        return await asyncio.gather(*[
-            _synth_chunk_retry(edge_tts, c, voice, rate, sem) for c in flat],
-            return_exceptions=True)
+        tasks = [asyncio.ensure_future(
+            _synth_chunk_retry(edge_tts, c, voice, rate, sem)) for c in flat]
+        done, pending = await asyncio.wait(tasks, timeout=REQUEST_BUDGET)
+        for t in pending:
+            t.cancel()
+        out = []
+        for t in tasks:
+            if t in done and not t.cancelled() and t.exception() is None:
+                out.append(t.result())
+            else:
+                out.append(None)
+        return out
 
-    try:
-        results = asyncio.run(run_all())
-    except Exception as exc:
-        return None, (502, {"error": "synthesis_failed",
-                            "detail": f"Speech synthesis failed: {type(exc).__name__}: {exc}"})
+    results = asyncio.run(run_all())
     # A chunk can be unspeakable for the chosen voice (the classic case:
     # a paragraph of foreign-script example sentences inside an English
-    # article - the engine returns NoAudioReceived). One bad chunk must
-    # not kill the whole article: skip it and disclose the skip in the
-    # response headers. Only a total failure is a 502.
-    skipped = sum(1 for r in results if isinstance(r, Exception))
+    # article - the engine returns NoAudioReceived), stall past its
+    # ceiling, or miss the request budget. None of those may kill the
+    # whole article: the chunk is skipped and the skip is disclosed in
+    # the response headers. Only a total failure is a 502.
+    skipped = sum(1 for r in results if r is None)
     if skipped == len(results):
-        first = results[0]
         return None, (502, {"error": "synthesis_failed",
-                            "detail": f"Speech synthesis failed: {type(first).__name__}: {first}"})
+                            "detail": "Speech synthesis failed for every chunk (engine errors, stalls, or unspeakable text for the chosen voice). Try another voice or a shorter text."})
     audio = bytearray()
     idx = 0
     sounded = 0
     for pi, group in enumerate(para_chunks):
         para_audio = bytearray()
         for _ in group:
-            if not isinstance(results[idx], Exception):
+            if results[idx] is not None:
                 para_audio.extend(results[idx])
             idx += 1
         if para_audio:

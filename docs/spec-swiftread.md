@@ -20,11 +20,15 @@ tools, newsletters, and content platforms.
   time caps, boilerplate and navigation stripped by construction.
 - Speech: the free Microsoft Edge read-aloud neural voices via the
   edge-tts package. Zero marginal cost, no key, no paid TTS. Text is
-  chunked at sentence boundaries within paragraphs (1,600 characters
+  chunked at sentence boundaries within paragraphs (1,200 characters
   per chunk); chunks synthesize in parallel under a bounded pool
-  (concurrency 6) with one retry per chunk and a 75-second
-  per-attempt ceiling, so a stalled engine stream fails one attempt
-  instead of hanging the request, and the MP3 segments are
+  (concurrency 8) with one retry per chunk and a 45-second
+  per-attempt ceiling, under an 85-second whole-request budget sized
+  to the platform's response cutoff: chunks that stall, error, miss
+  the budget, or are unspeakable for the chosen voice (foreign-script
+  example text) are skipped and disclosed in the
+  X-SwiftRead-Chunks-Skipped response header instead of failing the
+  article, and the MP3 segments are
   concatenated in reading order with a 0.4-second silence beat
   between paragraphs, so playback keeps the article's rhythm.
 - POST /read-url {url, voice?, rate?} -> audio/mpeg. POST /speak
