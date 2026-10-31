@@ -352,26 +352,44 @@ def synthesize(text, voice, rate):
     async def run_all():
         sem = asyncio.Semaphore(SYNTH_CONCURRENCY)
         return await asyncio.gather(*[
-            _synth_chunk_retry(edge_tts, c, voice, rate, sem) for c in flat])
+            _synth_chunk_retry(edge_tts, c, voice, rate, sem) for c in flat],
+            return_exceptions=True)
 
     try:
         results = asyncio.run(run_all())
     except Exception as exc:
         return None, (502, {"error": "synthesis_failed",
                             "detail": f"Speech synthesis failed: {type(exc).__name__}: {exc}"})
+    # A chunk can be unspeakable for the chosen voice (the classic case:
+    # a paragraph of foreign-script example sentences inside an English
+    # article - the engine returns NoAudioReceived). One bad chunk must
+    # not kill the whole article: skip it and disclose the skip in the
+    # response headers. Only a total failure is a 502.
+    skipped = sum(1 for r in results if isinstance(r, Exception))
+    if skipped == len(results):
+        first = results[0]
+        return None, (502, {"error": "synthesis_failed",
+                            "detail": f"Speech synthesis failed: {type(first).__name__}: {first}"})
     audio = bytearray()
     idx = 0
+    sounded = 0
     for pi, group in enumerate(para_chunks):
+        para_audio = bytearray()
         for _ in group:
-            audio.extend(results[idx])
+            if not isinstance(results[idx], Exception):
+                para_audio.extend(results[idx])
             idx += 1
-        if pi < len(para_chunks) - 1:
-            audio.extend(PARAGRAPH_PAUSE)
+        if para_audio:
+            if sounded:
+                audio.extend(PARAGRAPH_PAUSE)
+            audio.extend(para_audio)
+            sounded += 1
     if not audio:
         return None, (502, {"error": "synthesis_failed",
                             "detail": "Speech synthesis returned no audio."})
     return (bytes(audio), {"chunks": len(flat), "characters": len(text),
                            "paragraphs": len(paragraphs),
+                           "chunks_skipped": skipped,
                            "voice": voice, "rate": rate}), None
 
 
@@ -537,6 +555,8 @@ def run_server(port):
             self.send_header("X-SwiftRead-Chunks", str(meta["chunks"]))
             if meta.get("paragraphs"):
                 self.send_header("X-SwiftRead-Paragraphs", str(meta["paragraphs"]))
+            if meta.get("chunks_skipped"):
+                self.send_header("X-SwiftRead-Chunks-Skipped", str(meta["chunks_skipped"]))
             if meta.get("title"):
                 safe_title = meta["title"].encode("ascii", "ignore").decode().strip()[:120]
                 if safe_title:
