@@ -20,12 +20,21 @@ tools, newsletters, and content platforms.
   time caps, boilerplate and navigation stripped by construction.
 - Speech: the free Microsoft Edge read-aloud neural voices via the
   edge-tts package. Zero marginal cost, no key, no paid TTS. Text is
-  chunked at sentence boundaries (1,600 characters per chunk) and the
-  MP3 segments are concatenated in order so playback is seamless.
+  chunked at sentence boundaries within paragraphs (1,600 characters
+  per chunk); chunks synthesize in parallel under a bounded pool
+  (concurrency 4) with one retry per chunk, and the MP3 segments are
+  concatenated in reading order with a 0.4-second silence beat
+  between paragraphs, so playback keeps the article's rhythm.
 - POST /read-url {url, voice?, rate?} -> audio/mpeg. POST /speak
   {text, voice?, rate?} -> audio/mpeg for caller-supplied text.
-  GET /voices lists the curated set of 10 voices (US and UK, male
-  and female). GET /health is lane-standard.
+  GET /voices lists the curated set of 45 voices across 13 languages:
+  English (US, UK, and Kenyan, Nigerian, Tanzanian, and South
+  African variants), Spanish, French, German, Portuguese, Italian,
+  Japanese, Mandarin Chinese (zh-CN), Swahili, Amharic, Somali,
+  Zulu, and Afrikaans, each tagged with its language. (Yoruba, Igbo,
+  and Hausa have no voices in the Edge catalog, verified against the
+  live list, so they cannot be offered on this engine.) GET /health
+  is lane-standard.
 - Caps and errors, stated not hidden: 15,000 characters of extracted
   or supplied text per request; beyond the cap a 422 names the cap
   and the length received. A page with no extractable article text
@@ -37,8 +46,25 @@ tools, newsletters, and content platforms.
   extended with POST JSON bodies and binary audio responses, since
   the shared GET/JSON scaffold cannot carry either.
 - Audio responses carry X-SwiftRead-Voice, X-SwiftRead-Characters,
-  X-SwiftRead-Chunks, and (for /read-url) X-SwiftRead-Title headers,
-  so callers can log what was read without parsing the audio.
+  X-SwiftRead-Chunks, X-SwiftRead-Paragraphs, and (for /read-url)
+  X-SwiftRead-Title headers, so callers can log what was read
+  without parsing the audio.
+
+Competitor fix pass (2026-10-30, from
+swiftread-competitor-fixlist-2026-10-30.md - rival listings' public
+complaints mined and fixed before listing): (a) chunk synthesis
+parallelized, the checklist's one real engineering gap (item 6);
+(b) the voice roster widened from English-only to 45 voices in 13
+languages, including the owner's two additions, Mandarin Chinese
+and the African set: Swahili, Amharic, Somali, Zulu, Afrikaans plus
+African English variants (item 8); (c) paragraph-aware chunking
+with an audible pause between paragraphs (item 7); (d) listing
+actions: plans bill PER REQUEST, never per character (item 9),
+documentation ships copy-paste snippets for handling the binary MP3
+response in JavaScript and Python (item 10), and playable voice
+samples are prepared for the listing (item 5). A full-cap
+(15,000-character) end-to-end load test on the deployed service is
+recorded in docs/swiftread-reliability.md.
 
 Copyright posture: a read-aloud tool the caller points at content
 they supply. Listing copy stays generic ("turn articles and web
@@ -49,6 +75,9 @@ a way to obtain any specific publisher's content.
 
 BASIC $0 / 100 per month, PRO $5 / 1,000, ULTRA $20 / 10,000,
 MEGA $60 / 50,000. Net after RapidAPI's 25% fee: $3.75 / $15 / $45.
+Quotas bill PER REQUEST, never per character (the structural
+complaint against the biggest article-listening rival is that one
+15,000-character article costs 15 quotas there; here it costs 1).
 Audio generation is the heaviest workload in the fleet, so the free
 tier is deliberately modest; the engine itself costs $0 per call.
 
@@ -68,9 +97,12 @@ websocket upgrade), so synthesis is verified live on Render - the
 same pattern WhoisBase used for port-43, which the sandbox blocks
 and Render passes. Extraction, the gate, and every error path are
 verified locally. (2) A 15,000-character article is roughly 15
-minutes of speech and can take tens of seconds to synthesize;
-callers should treat /read-url as a slow endpoint, and the listing
-says so.
+minutes of speech; with parallel chunk synthesis the deployed
+wall-clock is measured in the load test recorded in
+docs/swiftread-reliability.md (an early sequential build needed
+over 130 seconds for a 6,666-character article, which is exactly
+the timeout complaint the parallel pass fixes); callers should
+still treat /read-url as a slow endpoint, and the listing says so.
 
 ## Local test log (2026-10-30, build sandbox, test proxy secret set)
 
@@ -86,3 +118,18 @@ stage (which then returned the structured 502 the sandbox's blocked
 websocket causes), and a page whose paragraphs are all short
 returned the clean 422 no_article_text. Synthesis itself is
 verified on the deployed service (see docs/swiftread-reliability.md).
+
+## Fix-pass test log (2026-10-30, after the competitor fixes)
+
+Offline unit checks of the new logic: 45 voices across 13 languages
+in the roster (zh-CN pair present; 20 voices in the African set);
+the paragraph-pause segment decodes to 2,928 bytes of valid MP3
+frames at the engine's format; paragraph splitting and per-paragraph
+chunking verified on multi-paragraph text; a 200-sentence paragraph
+chunks into 6 parts, none over 1,600 characters; rate normalization
+unchanged. Local server smoke with the test secret: /health open;
+GET /voices 401 without the header and 200 with it, returning all
+45 voices with language tags; the unknown-voice 422 now lists all
+45 valid ids; the over-cap 422 unchanged. (A stale pre-fix server
+was found still holding local port 8112 during this pass and was
+killed; the smoke above ran against the new build.)

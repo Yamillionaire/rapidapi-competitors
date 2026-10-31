@@ -6,8 +6,10 @@ proven stdlib stack, shared with CleanExtract (density-scored main
 content, SSRF-hardened fetch, structured errors, never a bare 503).
 Speech is synthesized with the free Microsoft Edge read-aloud neural
 voices via the edge-tts package: zero marginal cost, no paid TTS, no
-API key. Long text is chunked at sentence boundaries and the MP3
-segments are concatenated in order, so playback is seamless.
+API key. Long text is chunked at sentence boundaries within paragraphs;
+chunks synthesize in parallel (bounded pool) and the MP3 segments are
+concatenated in reading order with a short silence beat between
+paragraphs, so playback keeps the article's rhythm.
 
 The shared scaffold (shared/rapidapi_server.py) speaks GET/JSON only,
 so this service carries its own small server that keeps the scaffold's
@@ -23,6 +25,7 @@ Endpoints:
 Run: python3 app.py (PORT env, default 8112). Needs: pip install edge-tts.
 """
 import asyncio
+import base64
 import ipaddress
 import json
 import os
@@ -42,17 +45,54 @@ MAX_BODY = 300_000          # request body byte cap
 DEFAULT_VOICE = "en-US-AriaNeural"
 
 # Curated natural neural voices (Microsoft Edge read-aloud set).
+# Seven languages at launch - English-only is the named weakness of the
+# biggest article-listening competitor, and these cost nothing extra.
 VOICES = [
-    {"id": "en-US-AriaNeural",       "name": "Aria",       "locale": "en-US", "gender": "Female", "style": "Warm, natural newsreader"},
-    {"id": "en-US-JennyNeural",      "name": "Jenny",      "locale": "en-US", "gender": "Female", "style": "Friendly, conversational"},
-    {"id": "en-US-MichelleNeural",   "name": "Michelle",   "locale": "en-US", "gender": "Female", "style": "Clear, professional"},
-    {"id": "en-US-GuyNeural",        "name": "Guy",        "locale": "en-US", "gender": "Male",   "style": "Steady, broadcast"},
-    {"id": "en-US-ChristopherNeural","name": "Christopher","locale": "en-US", "gender": "Male",   "style": "Calm, documentary"},
-    {"id": "en-US-EricNeural",       "name": "Eric",       "locale": "en-US", "gender": "Male",   "style": "Measured, articulate"},
-    {"id": "en-GB-SoniaNeural",      "name": "Sonia",      "locale": "en-GB", "gender": "Female", "style": "Polished British newsreader"},
-    {"id": "en-GB-LibbyNeural",      "name": "Libby",      "locale": "en-GB", "gender": "Female", "style": "Bright British"},
-    {"id": "en-GB-RyanNeural",       "name": "Ryan",       "locale": "en-GB", "gender": "Male",   "style": "Warm British"},
-    {"id": "en-GB-ThomasNeural",     "name": "Thomas",     "locale": "en-GB", "gender": "Male",   "style": "Formal British"},
+    {"id": "en-US-AriaNeural",       "name": "Aria",       "locale": "en-US", "language": "English",    "gender": "Female", "style": "Warm, natural newsreader"},
+    {"id": "en-US-JennyNeural",      "name": "Jenny",      "locale": "en-US", "language": "English",    "gender": "Female", "style": "Friendly, conversational"},
+    {"id": "en-US-MichelleNeural",   "name": "Michelle",   "locale": "en-US", "language": "English",    "gender": "Female", "style": "Clear, professional"},
+    {"id": "en-US-GuyNeural",        "name": "Guy",        "locale": "en-US", "language": "English",    "gender": "Male",   "style": "Steady, broadcast"},
+    {"id": "en-US-ChristopherNeural","name": "Christopher","locale": "en-US", "language": "English",    "gender": "Male",   "style": "Calm, documentary"},
+    {"id": "en-US-EricNeural",       "name": "Eric",       "locale": "en-US", "language": "English",    "gender": "Male",   "style": "Measured, articulate"},
+    {"id": "en-GB-SoniaNeural",      "name": "Sonia",      "locale": "en-GB", "language": "English",    "gender": "Female", "style": "Polished British newsreader"},
+    {"id": "en-GB-LibbyNeural",      "name": "Libby",      "locale": "en-GB", "language": "English",    "gender": "Female", "style": "Bright British"},
+    {"id": "en-GB-RyanNeural",       "name": "Ryan",       "locale": "en-GB", "language": "English",    "gender": "Male",   "style": "Warm British"},
+    {"id": "en-GB-ThomasNeural",     "name": "Thomas",     "locale": "en-GB", "language": "English",    "gender": "Male",   "style": "Formal British"},
+    {"id": "es-ES-ElviraNeural",     "name": "Elvira",     "locale": "es-ES", "language": "Spanish",    "gender": "Female", "style": "Clear Castilian newsreader"},
+    {"id": "es-ES-AlvaroNeural",     "name": "Alvaro",     "locale": "es-ES", "language": "Spanish",    "gender": "Male",   "style": "Steady Castilian"},
+    {"id": "es-MX-DaliaNeural",      "name": "Dalia",      "locale": "es-MX", "language": "Spanish",    "gender": "Female", "style": "Warm Mexican"},
+    {"id": "fr-FR-DeniseNeural",     "name": "Denise",     "locale": "fr-FR", "language": "French",     "gender": "Female", "style": "Polished French newsreader"},
+    {"id": "fr-FR-HenriNeural",      "name": "Henri",      "locale": "fr-FR", "language": "French",     "gender": "Male",   "style": "Measured French"},
+    {"id": "de-DE-KatjaNeural",      "name": "Katja",      "locale": "de-DE", "language": "German",     "gender": "Female", "style": "Clear German newsreader"},
+    {"id": "de-DE-ConradNeural",     "name": "Conrad",     "locale": "de-DE", "language": "German",     "gender": "Male",   "style": "Formal German"},
+    {"id": "pt-BR-FranciscaNeural",  "name": "Francisca",  "locale": "pt-BR", "language": "Portuguese", "gender": "Female", "style": "Warm Brazilian"},
+    {"id": "pt-BR-AntonioNeural",    "name": "Antonio",    "locale": "pt-BR", "language": "Portuguese", "gender": "Male",   "style": "Steady Brazilian"},
+    {"id": "it-IT-ElsaNeural",       "name": "Elsa",       "locale": "it-IT", "language": "Italian",    "gender": "Female", "style": "Clear Italian"},
+    {"id": "it-IT-DiegoNeural",      "name": "Diego",      "locale": "it-IT", "language": "Italian",    "gender": "Male",   "style": "Warm Italian"},
+    {"id": "ja-JP-NanamiNeural",     "name": "Nanami",     "locale": "ja-JP", "language": "Japanese",   "gender": "Female", "style": "Clear Japanese"},
+    {"id": "ja-JP-KeitaNeural",      "name": "Keita",      "locale": "ja-JP", "language": "Japanese",   "gender": "Male",   "style": "Steady Japanese"},
+    {"id": "zh-CN-XiaoxiaoNeural",   "name": "Xiaoxiao",   "locale": "zh-CN", "language": "Chinese (Mandarin)", "gender": "Female", "style": "Warm Mandarin newsreader"},
+    {"id": "zh-CN-YunyangNeural",    "name": "Yunyang",    "locale": "zh-CN", "language": "Chinese (Mandarin)", "gender": "Male",   "style": "Professional Mandarin broadcast"},
+    {"id": "en-KE-AsiliaNeural",     "name": "Asilia",     "locale": "en-KE", "language": "English",    "gender": "Female", "style": "Kenyan English"},
+    {"id": "en-KE-ChilembaNeural",   "name": "Chilemba",   "locale": "en-KE", "language": "English",    "gender": "Male",   "style": "Kenyan English"},
+    {"id": "en-NG-EzinneNeural",     "name": "Ezinne",     "locale": "en-NG", "language": "English",    "gender": "Female", "style": "Nigerian English"},
+    {"id": "en-NG-AbeoNeural",       "name": "Abeo",       "locale": "en-NG", "language": "English",    "gender": "Male",   "style": "Nigerian English"},
+    {"id": "en-TZ-ImaniNeural",      "name": "Imani",      "locale": "en-TZ", "language": "English",    "gender": "Female", "style": "Tanzanian English"},
+    {"id": "en-TZ-ElimuNeural",      "name": "Elimu",      "locale": "en-TZ", "language": "English",    "gender": "Male",   "style": "Tanzanian English"},
+    {"id": "en-ZA-LeahNeural",       "name": "Leah",       "locale": "en-ZA", "language": "English",    "gender": "Female", "style": "South African English"},
+    {"id": "en-ZA-LukeNeural",       "name": "Luke",       "locale": "en-ZA", "language": "English",    "gender": "Male",   "style": "South African English"},
+    {"id": "sw-KE-ZuriNeural",       "name": "Zuri",       "locale": "sw-KE", "language": "Swahili",    "gender": "Female", "style": "Kenyan Swahili"},
+    {"id": "sw-KE-RafikiNeural",     "name": "Rafiki",     "locale": "sw-KE", "language": "Swahili",    "gender": "Male",   "style": "Kenyan Swahili"},
+    {"id": "sw-TZ-RehemaNeural",     "name": "Rehema",     "locale": "sw-TZ", "language": "Swahili",    "gender": "Female", "style": "Tanzanian Swahili"},
+    {"id": "sw-TZ-DaudiNeural",      "name": "Daudi",      "locale": "sw-TZ", "language": "Swahili",    "gender": "Male",   "style": "Tanzanian Swahili"},
+    {"id": "am-ET-MekdesNeural",     "name": "Mekdes",     "locale": "am-ET", "language": "Amharic",    "gender": "Female", "style": "Ethiopian Amharic"},
+    {"id": "am-ET-AmehaNeural",      "name": "Ameha",      "locale": "am-ET", "language": "Amharic",    "gender": "Male",   "style": "Ethiopian Amharic"},
+    {"id": "so-SO-UbaxNeural",       "name": "Ubax",       "locale": "so-SO", "language": "Somali",     "gender": "Female", "style": "Somali"},
+    {"id": "so-SO-MuuseNeural",      "name": "Muuse",      "locale": "so-SO", "language": "Somali",     "gender": "Male",   "style": "Somali"},
+    {"id": "zu-ZA-ThandoNeural",     "name": "Thando",     "locale": "zu-ZA", "language": "Zulu",       "gender": "Female", "style": "South African Zulu"},
+    {"id": "zu-ZA-ThembaNeural",     "name": "Themba",     "locale": "zu-ZA", "language": "Zulu",       "gender": "Male",   "style": "South African Zulu"},
+    {"id": "af-ZA-AdriNeural",       "name": "Adri",       "locale": "af-ZA", "language": "Afrikaans",  "gender": "Female", "style": "South African Afrikaans"},
+    {"id": "af-ZA-WillemNeural",     "name": "Willem",     "locale": "af-ZA", "language": "Afrikaans",  "gender": "Male",   "style": "South African Afrikaans"},
 ]
 _VOICE_IDS = {v["id"] for v in VOICES}
 
@@ -212,8 +252,25 @@ def normalize_rate(rate):
     return f"{pct:+d}%"
 
 
-def chunk_text(text):
-    sentences = re.split(r"(?<=[.!?])\s+", text.replace("\n", " "))
+# Paragraph pause: 0.4 s of silence as raw MP3 frames in the exact format
+# edge-tts emits (24 kHz, 48 kbps, mono), inserted between paragraphs so
+# paragraph structure stays audible instead of flattened (a named gap at
+# the biggest article-listening competitor: users asked for pause control
+# and were refused).
+PARAGRAPH_PAUSE = base64.b64decode("//OEwAAAAAAAAAAAAEluZm8AAAAPAAAAEwAAC3AAHR0dHR0pKSkpKTY2NjY2Q0NDQ0NDT09PT09cXFxcXGhoaGhodXV1dXV1goKCgoKOjo6Ojpubm5ubp6enp6entLS0tLTBwcHBwc3Nzc3N2tra2tra5ubm5ubz8/Pz8///////AAAAAExhdmM2Mi4yOAAAAAAAAAAAAAAAACQDAAAAAAAAAAtwBmwvuQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//NkxAAAAANIAAAAAExBTUVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NkxHwAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+
+# Bounded parallelism for chunk synthesis: wall-clock tracks the slowest
+# batch, not the sum of every chunk (the long-article timeout complaint).
+SYNTH_CONCURRENCY = 4
+
+
+def split_paragraphs(text):
+    parts = re.split(r"\n\s*\n", text)
+    return [re.sub(r"\s+", " ", p).strip() for p in parts if p.strip()]
+
+
+def chunk_paragraph(par):
+    sentences = re.split(r"(?<=[.!?])\s+", par.replace("\n", " "))
     chunks, cur = [], ""
     for sent in sentences:
         sent = sent.strip()
@@ -259,24 +316,52 @@ async def _synth_chunk(edge_tts, text, voice, rate):
     return bytes(buf)
 
 
+async def _synth_chunk_retry(edge_tts, text, voice, rate, sem):
+    async with sem:
+        data = await _synth_chunk(edge_tts, text, voice, rate)
+        if data:
+            return data
+        # one retry: a transient engine hiccup on one chunk must not fail
+        # a whole article
+        data = await _synth_chunk(edge_tts, text, voice, rate)
+        if not data:
+            raise RuntimeError("empty audio from TTS engine")
+        return data
+
+
 def synthesize(text, voice, rate):
     try:
         import edge_tts
     except ImportError:
         return None, (503, {"error": "engine_not_configured",
                             "detail": "The speech engine package is not installed on this deployment."})
-    chunks = chunk_text(text)
-    audio = bytearray()
+    paragraphs = split_paragraphs(text)
+    para_chunks = [chunk_paragraph(p) for p in paragraphs]
+    flat = [c for group in para_chunks for c in group]
+
+    async def run_all():
+        sem = asyncio.Semaphore(SYNTH_CONCURRENCY)
+        return await asyncio.gather(*[
+            _synth_chunk_retry(edge_tts, c, voice, rate, sem) for c in flat])
+
     try:
-        for chunk in chunks:
-            audio.extend(asyncio.run(_synth_chunk(edge_tts, chunk, voice, rate)))
+        results = asyncio.run(run_all())
     except Exception as exc:
         return None, (502, {"error": "synthesis_failed",
                             "detail": f"Speech synthesis failed: {type(exc).__name__}: {exc}"})
+    audio = bytearray()
+    idx = 0
+    for pi, group in enumerate(para_chunks):
+        for _ in group:
+            audio.extend(results[idx])
+            idx += 1
+        if pi < len(para_chunks) - 1:
+            audio.extend(PARAGRAPH_PAUSE)
     if not audio:
         return None, (502, {"error": "synthesis_failed",
                             "detail": "Speech synthesis returned no audio."})
-    return (bytes(audio), {"chunks": len(chunks), "characters": len(text),
+    return (bytes(audio), {"chunks": len(flat), "characters": len(text),
+                           "paragraphs": len(paragraphs),
                            "voice": voice, "rate": rate}), None
 
 
@@ -349,7 +434,7 @@ def read_url(body):
 
 def voices(params):
     return 200, {"voices": VOICES, "default": DEFAULT_VOICE,
-                 "note": "Natural neural voices from the Microsoft Edge read-aloud set. Pass the id as voice= in /speak or /read-url."}
+                 "note": "Natural neural voices from the Microsoft Edge read-aloud set: 45 voices across 13 languages (English incl. Kenyan, Nigerian, Tanzanian and South African variants, Spanish, French, German, Portuguese, Italian, Japanese, Mandarin Chinese, Swahili, Amharic, Somali, Zulu, Afrikaans). Each voice carries its language tag. Pass the id as voice= in /speak or /read-url."}
 
 
 def health(params):
@@ -440,6 +525,8 @@ def run_server(port):
             self.send_header("X-SwiftRead-Voice", meta["voice"])
             self.send_header("X-SwiftRead-Characters", str(meta["characters"]))
             self.send_header("X-SwiftRead-Chunks", str(meta["chunks"]))
+            if meta.get("paragraphs"):
+                self.send_header("X-SwiftRead-Paragraphs", str(meta["paragraphs"]))
             if meta.get("title"):
                 safe_title = meta["title"].encode("ascii", "ignore").decode().strip()[:120]
                 if safe_title:
