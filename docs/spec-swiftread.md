@@ -22,7 +22,7 @@ tools, newsletters, and content platforms.
   edge-tts package. Zero marginal cost, no key, no paid TTS. Text is
   chunked at sentence boundaries within paragraphs (1,200 characters
   per chunk); chunks synthesize in parallel under a bounded pool
-  (concurrency 8) with one retry per chunk and a 45-second
+  (concurrency 4) with one retry per chunk and a 60-second
   per-attempt ceiling, under an 85-second whole-request budget sized
   to the platform's response cutoff: chunks that stall, error, miss
   the budget, or are unspeakable for the chosen voice (foreign-script

@@ -261,14 +261,14 @@ PARAGRAPH_PAUSE = base64.b64decode("//OEwAAAAAAAAAAAAEluZm8AAAAPAAAAEwAAC3AAHR0d
 
 # Bounded parallelism for chunk synthesis: wall-clock tracks the slowest
 # batch, not the sum of every chunk (the long-article timeout complaint).
-SYNTH_CONCURRENCY = 8
+SYNTH_CONCURRENCY = 4
 
 # Per-attempt ceiling for one chunk's synthesis. The free engine endpoint
 # occasionally stalls a stream without erroring; without a ceiling one
 # stalled chunk hangs the whole request forever (observed live: a
 # 114-character request never answered). A timed-out attempt is retried
 # once, then the chunk is skipped and disclosed.
-CHUNK_TIMEOUT = 45
+CHUNK_TIMEOUT = 60
 
 # Whole-request synthesis budget. The platform path in front of the
 # service cuts responses that take much over ~100 s (observed live:
@@ -361,18 +361,21 @@ def synthesize(text, voice, rate):
         sem = asyncio.Semaphore(SYNTH_CONCURRENCY)
         tasks = [asyncio.ensure_future(
             _synth_chunk_retry(edge_tts, c, voice, rate, sem)) for c in flat]
-        done, pending = await asyncio.wait(tasks, timeout=REQUEST_BUDGET)
-        for t in pending:
-            t.cancel()
-        out = []
-        for t in tasks:
-            if t in done and not t.cancelled() and t.exception() is None:
-                out.append(t.result())
-            else:
-                out.append(None)
-        return out
+        done, _pending = await asyncio.wait(tasks, timeout=REQUEST_BUDGET)
+        return [t.result() if t in done and not t.cancelled()
+                and t.exception() is None else None for t in tasks]
 
-    results = asyncio.run(run_all())
+    # Manual loop, closed WITHOUT the standard shutdown: asyncio.run
+    # cancels leftover tasks at shutdown and waits for their cleanup,
+    # and a stalled engine stream can ignore cancellation for minutes
+    # (observed live: requests hanging past 150-300 s despite every
+    # inner timeout). Abandoning the loop returns the finished audio
+    # on budget; the orphaned tasks die with the loop.
+    loop = asyncio.new_event_loop()
+    try:
+        results = loop.run_until_complete(run_all())
+    finally:
+        loop.close()
     # A chunk can be unspeakable for the chosen voice (the classic case:
     # a paragraph of foreign-script example sentences inside an English
     # article - the engine returns NoAudioReceived), stall past its
