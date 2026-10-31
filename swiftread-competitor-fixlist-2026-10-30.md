@@ -185,15 +185,22 @@ the TTS half, which is where users are hurting.
 - Fix: ship more than English at launch or fast-follow. The Edge neural set has
   quality voices in Spanish, French, German, Portuguese, Italian, Japanese, and
   more at the same zero marginal cost, so this is roster work, not engine work.
-- SwiftRead coverage: **COVERED (fix pass 2026-10-30).** The roster is 45
-  voices across 13 languages, each tagged with its language in GET /voices:
-  English (US, UK, plus Kenyan, Nigerian, Tanzanian, and South African
-  variants), Spanish, French, German, Portuguese, Italian, Japanese,
-  Mandarin Chinese (zh-CN, added at the owner's direction), and the
-  African set the owner directed: Swahili (sw-KE, sw-TZ), Amharic,
-  Somali, Zulu, and Afrikaans. Yoruba, Igbo, and Hausa have no voices
-  in the Edge catalog (verified against the live 322-voice list), so
-  they cannot be offered on this engine and are not listed.
+- SwiftRead coverage: **COVERED (fix pass 2026-10-30; FULL CATALOG
+  2026-10-31).** The roster began at 45 voices across 13 languages,
+  each tagged with its language in GET /voices: English (US, UK, plus
+  Kenyan, Nigerian, Tanzanian, and South African variants), Spanish,
+  French, German, Portuguese, Italian, Japanese, Mandarin Chinese
+  (zh-CN, added at the owner's direction), and the African set the
+  owner directed: Swahili (sw-KE, sw-TZ), Amharic, Somali, Zulu, and
+  Afrikaans. Yoruba, Igbo, and Hausa have no voices in the Edge
+  catalog (verified against the live 322-voice list), so they cannot
+  be offered on this engine and are not listed. SUPERSEDED the next
+  day by the owner's full-catalog directive: the entire Edge catalog
+  now ships as data (322 voices, 142 locales, 75 languages), any
+  catalog id validates, /voices filters by language, locale, and
+  gender, and the default order runs most-spoken languages first
+  with the African set right behind them; the 45 remain the featured
+  picks.
 
 ### 9. Pricing that punishes exactly the long content the product is for
 

@@ -38,10 +38,10 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html.parser import HTMLParser
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 SERVICE = "swiftread"
-BUILD = "2026-10-31-instrumented"   # reported by /health to prove which code serves
+BUILD = "2026-10-31-full-catalog"   # reported by /health to prove which code serves
 RECENT = []                          # last service-side POST outcomes (see /health)
 MAX_CHARS = 15_000          # extracted or supplied text cap per request
 CHUNK_CHARS = 1_200         # per-synthesis chunk, packed at sentence boundaries
@@ -99,6 +99,29 @@ VOICES = [
     {"id": "af-ZA-WillemNeural",     "name": "Willem",     "locale": "af-ZA", "language": "Afrikaans",  "gender": "Male",   "style": "South African Afrikaans"},
 ]
 _VOICE_IDS = {v["id"] for v in VOICES}
+
+# Full catalog (owner directive 2026-10-30: "take it all the way to the
+# 75 language limit"). voices.json sits next to this file, generated
+# from the live Edge voice list (322 voices, 142 locales, 75 languages)
+# and ordered most-spoken languages first (English, Chinese, Hindi,
+# Spanish, French, Arabic, Bangla, Portuguese, Russian, Japanese,
+# German, Indonesian, Urdu), then the featured African set, then the
+# rest alphabetically. When it loads, it IS the roster: validation
+# accepts any catalog id. The curated list above stays as the offline
+# fallback, and its voices carry featured: true in the data - they are
+# the featured picks highlighted in the docs and listing copy.
+_CATALOG = {"voices": len(VOICES),
+            "locales": len({v["locale"] for v in VOICES}),
+            "languages": len({v["locale"].split("-")[0] for v in VOICES})}
+try:
+    import pathlib
+    _data = json.loads(pathlib.Path(__file__).with_name("voices.json").read_text(encoding="utf-8"))
+    if _data.get("voices"):
+        VOICES = _data["voices"]
+        _VOICE_IDS = {v["id"] for v in VOICES}
+        _CATALOG = _data["counts"]
+except Exception:
+    pass
 
 
 # --------------------------------------------------------------------------
@@ -287,8 +310,16 @@ def split_paragraphs(text):
     return [re.sub(r"\s+", " ", p).strip() for p in parts if p.strip()]
 
 
+# Sentence boundaries: Latin . ! ? plus the CJK full stops (。！？)
+# and the Hindi danda (।), so Chinese, Japanese, and Hindi chunk at
+# real sentence boundaries. The 1,200-char hard split in
+# chunk_paragraph remains the backstop - and the only mechanism for
+# languages like Thai that do not punctuate sentences.
+SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[。！？।])\s*")
+
+
 def chunk_paragraph(par):
-    sentences = re.split(r"(?<=[.!?])\s+", par.replace("\n", " "))
+    sentences = SENT_SPLIT.split(par.replace("\n", " "))
     chunks, cur = [], ""
     for sent in sentences:
         sent = sent.strip()
@@ -413,7 +444,7 @@ def _validate_voice_rate(body):
     voice = body.get("voice") or DEFAULT_VOICE
     if voice not in _VOICE_IDS:
         return None, None, (422, {"error": "invalid_parameter",
-                                  "detail": f"voice must be one of: {', '.join(sorted(_VOICE_IDS))}. See GET /voices."})
+                                  "detail": "voice must be a voice id from GET /voices (322 voices in 75 languages; filter with ?language=, ?locale=, ?gender=)."})
     rate = normalize_rate(body.get("rate"))
     if rate is None:
         return None, None, (422, {"error": "invalid_parameter",
@@ -477,8 +508,28 @@ def read_url(body):
 
 
 def voices(params):
-    return 200, {"voices": VOICES, "default": DEFAULT_VOICE,
-                 "note": "Natural neural voices from the Microsoft Edge read-aloud set: 45 voices across 13 languages (English incl. Kenyan, Nigerian, Tanzanian and South African variants, Spanish, French, German, Portuguese, Italian, Japanese, Mandarin Chinese, Swahili, Amharic, Somali, Zulu, Afrikaans). Each voice carries its language tag. Pass the id as voice= in /speak or /read-url."}
+    def q(name):
+        val = params.get(name)
+        if isinstance(val, list):
+            val = val[0] if val else None
+        return (val or "").strip().lower() or None
+
+    lang, loc, gen = q("language"), q("locale"), q("gender")
+    out = VOICES
+    if lang:
+        out = [v for v in out if v["language"].lower() == lang
+               or v["locale"].split("-")[0].lower() == lang]
+    if loc:
+        out = [v for v in out if v["locale"].lower() == loc
+               or ("-" not in loc and v["locale"].split("-")[0].lower() == loc)]
+    if gen:
+        out = [v for v in out if v["gender"].lower() == gen]
+    applied = {k: v for k, v in (("language", lang), ("locale", loc),
+                                 ("gender", gen)) if v}
+    return 200, {"voices": out, "count": len(out), "catalog": _CATALOG,
+                 "filters_applied": applied,
+                 "default": DEFAULT_VOICE,
+                 "note": "The full Microsoft Edge read-aloud catalog: 322 voices, 142 locales, 75 languages, ordered most-spoken languages first. Filter with ?language= (name or code, e.g. Spanish or es), ?locale= (e.g. en-NG), ?gender= (Female or Male). Voices flagged featured are the curated picks. Pass any id as voice= in /speak or /read-url."}
 
 
 def health(params):
@@ -488,6 +539,7 @@ def health(params):
     except ImportError:
         engine = "NOT INSTALLED on this deployment"
     return 200, {"status": "ok", "service": SERVICE, "build": BUILD,
+                 "catalog": _CATALOG,
                  "recent_requests": RECENT[-5:],
                  "uptime_target": "99.9%",
                  "engine": engine,
@@ -525,13 +577,14 @@ def run_server(port):
             return True
 
         def do_GET(self):
-            path = urlparse(self.path).path.rstrip("/") or "/"
+            parsed = urlparse(self.path)
+            path = parsed.path.rstrip("/") or "/"
             if not self._gate_ok(path):
                 return
             if path == "/health":
                 status, payload = health({})
             elif path == "/voices":
-                status, payload = voices({})
+                status, payload = voices(parse_qs(parsed.query))
             else:
                 return self._json(404, {"error": "not_found",
                                         "detail": f"No endpoint at {path}. See /health for service info."})

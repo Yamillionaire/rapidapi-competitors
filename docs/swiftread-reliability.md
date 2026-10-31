@@ -12,11 +12,14 @@ service, including the failures found and fixed during launch night
   article's main text (navigation and boilerplate stripped by a
   density-scored extractor with an SSRF-hardened fetch), and returns
   the reading as audio/mpeg. POST /speak does the same for raw text.
-- 45 neural voices in 13 languages: English (US, UK, Kenyan,
-  Nigerian, Tanzanian, South African), Spanish, French, German,
-  Portuguese, Italian, Japanese, Mandarin Chinese, Swahili, Amharic,
-  Somali, Zulu, Afrikaans. Every voice is tagged with its language
-  at GET /voices.
+- The complete neural voice catalog: 322 voices, 75 languages, 142
+  locales, listed at GET /voices (filter with ?language=, ?locale=,
+  ?gender=) and ordered most-spoken languages first - English,
+  Chinese, Hindi, Spanish, French, Arabic, Bangla, Portuguese,
+  Russian, Japanese, German, Indonesian, Urdu - then the featured
+  African set (Swahili, Amharic, Somali, Zulu, Afrikaans and the
+  African English variants), then the rest. A featured set of
+  curated picks is flagged in the data and highlighted in the docs.
 - 15,000 characters per request (about 15 minutes of speech), and
   plans bill PER REQUEST, never per character: a full article is
   one request. The cap is enforced exactly as documented; over-cap
@@ -53,9 +56,14 @@ engine's NoAudioReceived). SwiftRead is built around that reality:
 Verified end to end on https://swiftread.onrender.com:
 
 - GET /health: 200, reports the engine, the 15,000-character cap,
-  and the running build. GET /voices: 200, all 45 voices with
-  language tags (the proxy-secret gate returns 401 without the
-  header once the RapidAPI secret is wired at listing time).
+  and the running build. GET /voices: 200 with the full catalog -
+  322 voices, 142 locales, 75 languages in the shipped data
+  (generated from the live Edge voice list on 2026-10-31, ordered
+  most-spoken languages first), with working language, locale, and
+  gender filters, verified locally against the shipped data and on
+  the deployed service in the deploy check. (The proxy-secret gate
+  returns 401 without the header once the RapidAPI secret is wired
+  at listing time.)
 - POST /speak, English (en-US-GuyNeural, 115 chars): 200, valid MP3,
   7.1 s of audio. First-ever live call on the launch build returned
   in 8.4 s.

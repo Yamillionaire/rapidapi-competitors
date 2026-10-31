@@ -33,14 +33,20 @@ tools, newsletters, and content platforms.
   between paragraphs, so playback keeps the article's rhythm.
 - POST /read-url {url, voice?, rate?} -> audio/mpeg. POST /speak
   {text, voice?, rate?} -> audio/mpeg for caller-supplied text.
-  GET /voices lists the curated set of 45 voices across 13 languages:
-  English (US, UK, and Kenyan, Nigerian, Tanzanian, and South
-  African variants), Spanish, French, German, Portuguese, Italian,
-  Japanese, Mandarin Chinese (zh-CN), Swahili, Amharic, Somali,
-  Zulu, and Afrikaans, each tagged with its language. (Yoruba, Igbo,
-  and Hausa have no voices in the Edge catalog, verified against the
-  live list, so they cannot be offered on this engine.) GET /health
-  is lane-standard.
+  GET /voices lists the FULL Edge catalog: 322 voices, 142 locales,
+  75 languages, shipped as data (swiftread/voices.json, generated
+  from the live catalog list) and ordered most-spoken languages
+  first (English, Chinese, Hindi, Spanish, French, Arabic, Bangla,
+  Portuguese, Russian, Japanese, German, Indonesian, Urdu), then
+  the featured African set (Swahili, Amharic, Somali, Zulu,
+  Afrikaans, with the African English variants grouped under
+  English), then the rest alphabetically. Filters: ?language=
+  (name or code), ?locale=, ?gender=. The earlier curated 45 are
+  flagged featured and stay the highlighted picks in docs and
+  listing copy. Sentence splitting covers Latin punctuation plus
+  the CJK full stops and the Hindi danda; the 1,200-character hard
+  split remains the backstop (and the only mechanism for Thai).
+  GET /health is lane-standard.
 - Caps and errors, stated not hidden: 15,000 characters of extracted
   or supplied text per request; beyond the cap a 422 names the cap
   and the length received. A page with no extractable article text
@@ -72,6 +78,17 @@ samples are prepared for the listing (item 5). A full-cap
 (15,000-character) end-to-end load test is specified for the
 deployed service; its result, and the rest of the live record, live
 in docs/swiftread-reliability.md.
+
+Full-catalog pass (2026-10-31, owner directive superseding the
+curated roster): "take it all the way to the 75 language limit."
+The roster is now the entire Edge catalog as shipped data
+(322 voices, 142 locales, 75 languages), validation accepts any
+catalog id, /voices filters by language, locale, and gender, the
+presentation order puts the most-spoken languages first with the
+featured African set right behind them, and the splitter handles
+CJK and Hindi sentence punctuation. The curated 45 became the
+featured set. (Yoruba, Igbo, and Hausa remain impossible on this
+engine - they are not in the catalog at all.)
 
 Copyright posture: a read-aloud tool the caller points at content
 they supply. Listing copy stays generic ("turn articles and web

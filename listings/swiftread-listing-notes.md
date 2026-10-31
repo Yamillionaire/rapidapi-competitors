@@ -71,10 +71,20 @@ link the samples from the Spotlight proof doc instead
 
 ## Spotlight (after publish)
 
-Description must stay UNDER 280 characters. Draft (230 chars):
-"SwiftRead turns any article URL into natural spoken audio. 45 neural
-voices in 13 languages, paragraph pauses, a 15,000-character cap billed
-per request, and the MP3 returned directly - no expiring links. Live
-test results inside."
+Description must stay UNDER 280 characters. Draft (211 chars):
+"SwiftRead turns any article URL into natural spoken audio: 322 neural
+voices in 75 languages, paragraph pauses, a 15,000-character cap billed
+per request, and the MP3 returned directly. Live test results inside."
 Post via the URL tab with the GitHub blob URL of
 docs/swiftread-reliability.md (the File tab rejects markdown).
+
+## Presentation order (owner directive)
+
+Where the listing or docs present voices or languages, lead with the
+most-spoken languages: English, Chinese (Mandarin), Hindi, Spanish,
+French, Arabic, Bengali, Portuguese, Russian, Japanese, German,
+Indonesian, Urdu - then the featured African set (Swahili, Amharic,
+Somali, Zulu, Afrikaans, and the African English variants grouped
+with English) - then the rest. GET /voices already returns this
+order; the featured 45 (featured: true in the data) are the picks to
+highlight in the overview.

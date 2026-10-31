@@ -178,11 +178,14 @@ button as an API. No RapidAPI competitor offers URL-in article extraction
 at all; the fix list was built from the TTS rivals' public complaints
 (swiftread-competitor-fixlist-2026-10-30.md). Extraction is the
 CleanExtract stack (SSRF-hardened); speech is the free Microsoft Edge
-neural set via edge-tts ($0 marginal). 45 voices in 13 languages
-(English incl. Kenyan/Nigerian/Tanzanian/South African variants,
-Spanish, French, German, Portuguese, Italian, Japanese, Mandarin,
-Swahili, Amharic, Somali, Zulu, Afrikaans; Yoruba/Igbo/Hausa do not
-exist in the Edge catalog). Paragraph-aware parallel chunking
+neural set via edge-tts ($0 marginal). FULL CATALOG since 2026-10-31
+(owner directive): 322 voices, 142 locales, 75 languages shipped as
+data (swiftread/voices.json from the live catalog list), ordered
+most-spoken languages first, then the featured African set, then
+alphabetical; /voices filters by language/locale/gender; the
+original curated 45 are the featured picks; the splitter covers CJK
+full stops and the Hindi danda (Yoruba/Igbo/Hausa do not exist in
+the Edge catalog). Paragraph-aware parallel chunking
 (1,200 chars, pool 4) with a 0.4s inter-paragraph beat, per-request
 billing never per character, direct MP3 return (no expiring URLs),
 15,000-char cap with an honest 422, and a hard 85s thread-join
@@ -196,8 +199,11 @@ not fire on push). Spec docs/spec-swiftread.md; listing package
 listings/swiftread-openapi.json + listings/swiftread-listing-notes.md
 (per-request plan check, binary-handling snippets, voice samples).
 TESTED: local battery full (gate, 422s, SSRF, extraction, chunk and
-paragraph logic, silence segment format); live GET battery (health
-with build tag, 45 voices); live POST successes on the fix build
+paragraph logic incl. CJK/Hindi splitting, silence segment format,
+catalog load 322/142/75 with filters and ordering); live GET battery
+(health with build tag and catalog counts, 45 voices on the curated
+build, full-catalog count on the current build); live POST successes
+on the fix build
 (English 8.4s first call and 42.0s, Swahili 67.8s, Mandarin 18.9s,
 three-paragraph read with beats 14.5s of audio). STILL OWED when a
 clean POST test path exists (the build sandbox's egress proxy began
