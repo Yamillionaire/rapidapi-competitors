@@ -33,6 +33,7 @@ import re
 import socket
 import sys
 import threading
+import time
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +41,8 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 SERVICE = "swiftread"
+BUILD = "2026-10-31-instrumented"   # reported by /health to prove which code serves
+RECENT = []                          # last service-side POST outcomes (see /health)
 MAX_CHARS = 15_000          # extracted or supplied text cap per request
 CHUNK_CHARS = 1_200         # per-synthesis chunk, packed at sentence boundaries
 MAX_BODY = 300_000          # request body byte cap
@@ -484,7 +487,8 @@ def health(params):
         engine = "edge-tts (Microsoft Edge neural voices)"
     except ImportError:
         engine = "NOT INSTALLED on this deployment"
-    return 200, {"status": "ok", "service": SERVICE,
+    return 200, {"status": "ok", "service": SERVICE, "build": BUILD,
+                 "recent_requests": RECENT[-5:],
                  "uptime_target": "99.9%",
                  "engine": engine,
                  "limits": {"max_characters_per_request": MAX_CHARS},
@@ -555,11 +559,22 @@ def run_server(port):
             except Exception:
                 return self._json(422, {"error": "invalid_body",
                                         "detail": "Request body must be a JSON object."})
+            started = time.time()
             result, err = (speak(body) if path == "/speak" else read_url(body))
             if err:
                 status, payload = err
+                RECENT.append({"endpoint": path, "status": status,
+                               "seconds": round(time.time() - started, 1),
+                               "error": payload.get("error")})
+                del RECENT[:-10]
                 return self._json(status, payload)
             audio, meta = result
+            RECENT.append({"endpoint": path, "status": 200,
+                           "seconds": round(time.time() - started, 1),
+                           "characters": meta.get("characters"),
+                           "chunks": meta.get("chunks"),
+                           "chunks_skipped": meta.get("chunks_skipped", 0)})
+            del RECENT[:-10]
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
             self.send_header("Content-Length", str(len(audio)))
