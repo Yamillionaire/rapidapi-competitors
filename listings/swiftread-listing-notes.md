@@ -71,7 +71,7 @@ link the samples from the Spotlight proof doc instead
 
 ## Spotlight (after publish)
 
-Description must stay UNDER 280 characters. Draft (261 chars):
+Description must stay UNDER 280 characters. Draft (230 chars):
 "SwiftRead turns any article URL into natural spoken audio. 45 neural
 voices in 13 languages, paragraph pauses, a 15,000-character cap billed
 per request, and the MP3 returned directly - no expiring links. Live

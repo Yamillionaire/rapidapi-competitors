@@ -170,6 +170,49 @@ REMAINING: Studio listing, proxy-secret wiring with gate verification,
 publish, Hub gateway test, Spotlight (parent browser route; package at
 listings/whoisbase-openapi.json, proof doc docs/whoisbase-freshness.md).
 
+## 11. swiftread/ - SwiftRead (the user's own product; no incumbent)
+Endpoints: POST /read-url {url, voice?, rate?} -> audio/mpeg, POST /speak
+{text, voice?, rate?} -> audio/mpeg, GET /voices, GET /health.
+The user's own idea (2026-10-30 voice call): the "listen to this article"
+button as an API. No RapidAPI competitor offers URL-in article extraction
+at all; the fix list was built from the TTS rivals' public complaints
+(swiftread-competitor-fixlist-2026-10-30.md). Extraction is the
+CleanExtract stack (SSRF-hardened); speech is the free Microsoft Edge
+neural set via edge-tts ($0 marginal). 45 voices in 13 languages
+(English incl. Kenyan/Nigerian/Tanzanian/South African variants,
+Spanish, French, German, Portuguese, Italian, Japanese, Mandarin,
+Swahili, Amharic, Somali, Zulu, Afrikaans; Yoruba/Igbo/Hausa do not
+exist in the Edge catalog). Paragraph-aware parallel chunking
+(1,200 chars, pool 4) with a 0.4s inter-paragraph beat, per-request
+billing never per character, direct MP3 return (no expiring URLs),
+15,000-char cap with an honest 422, and a hard 85s thread-join
+synthesis deadline with skip-and-disclose chunks
+(X-SwiftRead-Chunks-Skipped) - the design that came out of launch
+night's engine stalls (asyncio timeouts cannot bound a stalled
+stream) and the NoAudioReceived mixed-script diagnosis.
+DEPLOYED 2026-10-30: https://swiftread.onrender.com
+(srv-dbild8lg1s2s73dj3hc0; deploys are API-triggered, auto-deploy did
+not fire on push). Spec docs/spec-swiftread.md; listing package
+listings/swiftread-openapi.json + listings/swiftread-listing-notes.md
+(per-request plan check, binary-handling snippets, voice samples).
+TESTED: local battery full (gate, 422s, SSRF, extraction, chunk and
+paragraph logic, silence segment format); live GET battery (health
+with build tag, 45 voices); live POST successes on the fix build
+(English 8.4s first call and 42.0s, Swahili 67.8s, Mandarin 18.9s,
+three-paragraph read with beats 14.5s of audio). STILL OWED when a
+clean POST test path exists (the build sandbox's egress proxy began
+stalling all POSTs on launch night, proven path-side via instant-422
+probes and parallel httpbin stalls): the full-cap 14,906-char load
+test and a complete /read-url read; the service self-records timings
+in /health recent_requests to finish both. Pricing (hard limits,
+per request): BASIC $0/100mo; PRO $5/1,000mo; ULTRA $20/10,000mo;
+MEGA $60/50,000mo. Keep-warm now covers eleven services, 09:00-11:00
+ET (682h worst month vs the 750 cap, about 68h headroom - tightest
+the fleet has run).
+REMAINING: Studio listing, proxy-secret wiring with gate
+verification, publish, Hub gateway test, Spotlight (parent browser
+route; proof doc docs/swiftread-reliability.md).
+
 ## Sequence
 Currency deploy-ready first (done at prototype level), Email second, Financials
 third once the quote feed is chosen. Nothing is published until the user approves

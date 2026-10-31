@@ -31,3 +31,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.3"
+  - type: web
+    name: swiftread
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r swiftread/requirements.txt"
+    startCommand: "python swiftread/app.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"

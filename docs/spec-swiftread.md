@@ -69,8 +69,9 @@ actions: plans bill PER REQUEST, never per character (item 9),
 documentation ships copy-paste snippets for handling the binary MP3
 response in JavaScript and Python (item 10), and playable voice
 samples are prepared for the listing (item 5). A full-cap
-(15,000-character) end-to-end load test on the deployed service is
-recorded in docs/swiftread-reliability.md.
+(15,000-character) end-to-end load test is specified for the
+deployed service; its result, and the rest of the live record, live
+in docs/swiftread-reliability.md.
 
 Copyright posture: a read-aloud tool the caller points at content
 they supply. Listing copy stays generic ("turn articles and web
@@ -102,13 +103,22 @@ intercepted at the network level; the sandbox proxy mangles the
 websocket upgrade), so synthesis is verified live on Render - the
 same pattern WhoisBase used for port-43, which the sandbox blocks
 and Render passes. Extraction, the gate, and every error path are
-verified locally. (2) A 15,000-character article is roughly 15
+verified locally. (2) Launch night produced the full failure museum
+of a free speech engine: streams that stall while ignoring asyncio
+cancellation (fixed with a hard thread-join deadline and
+skip-and-disclose chunks), chunks a voice cannot speak
+(NoAudioReceived on mixed-script text, same fix), and finally the
+sandbox's own egress proxy stalling ALL POST traffic - proven
+path-side when instant-422 POSTs stopped reaching the service while
+GETs answered in under a second and POSTs to unrelated hosts
+stalled identically. A 15,000-character article is roughly 15
 minutes of speech; with parallel chunk synthesis the deployed
-wall-clock is measured in the load test recorded in
-docs/swiftread-reliability.md (an early sequential build needed
-over 130 seconds for a 6,666-character article, which is exactly
-the timeout complaint the parallel pass fixes); callers should
-still treat /read-url as a slow endpoint, and the listing says so.
+wall-clock is recorded per request in GET /health (recent_requests,
+service-side seconds) and summarized in
+docs/swiftread-reliability.md; the full-cap load test and a complete
+/read-url read are the two rows that wait on a clean POST test path.
+Callers should treat /read-url as a slow endpoint, and the listing
+says so.
 
 ## Local test log (2026-10-30, build sandbox, test proxy secret set)
 
