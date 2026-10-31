@@ -32,6 +32,7 @@ import os
 import re
 import socket
 import sys
+import threading
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -263,19 +264,18 @@ PARAGRAPH_PAUSE = base64.b64decode("//OEwAAAAAAAAAAAAEluZm8AAAAPAAAAEwAAC3AAHR0d
 # batch, not the sum of every chunk (the long-article timeout complaint).
 SYNTH_CONCURRENCY = 4
 
-# Per-attempt ceiling for one chunk's synthesis. The free engine endpoint
-# occasionally stalls a stream without erroring; without a ceiling one
-# stalled chunk hangs the whole request forever (observed live: a
-# 114-character request never answered). A timed-out attempt is retried
-# once, then the chunk is skipped and disclosed.
-CHUNK_TIMEOUT = 60
-
 # Whole-request synthesis budget. The platform path in front of the
 # service cuts responses that take much over ~100 s (observed live:
-# empty platform 502s at 130 s and 308 s), so synthesis stops starting
-# new work at 85 s and returns the audio completed by then, with the
-# unfinished chunks counted in X-SwiftRead-Chunks-Skipped. A response
-# with most of the article beats a dead connection with none of it.
+# empty platform 502s at 130 s and 308 s), so synthesis runs under a
+# hard wall-clock deadline, enforced by a thread join in synthesize(),
+# and returns the audio completed by then, with the unfinished chunks
+# counted in X-SwiftRead-Chunks-Skipped. A response with most of the
+# article beats a dead connection with none of it. The deadline lives
+# outside the event loop on purpose: asyncio-level timeouts and task
+# cancellation proved unable to bound a stalled engine stream (the
+# stream can ignore cancellation for minutes; observed live at 123 s,
+# 150 s, and 180 s+ on single-chunk requests), while a thread join is
+# enforced by the OS scheduler and cannot be ignored.
 REQUEST_BUDGET = 85
 
 
@@ -331,22 +331,6 @@ async def _synth_chunk(edge_tts, text, voice, rate):
     return bytes(buf)
 
 
-async def _synth_chunk_retry(edge_tts, text, voice, rate, sem):
-    async with sem:
-        for attempt in range(2):
-            try:
-                data = await asyncio.wait_for(
-                    _synth_chunk(edge_tts, text, voice, rate),
-                    timeout=CHUNK_TIMEOUT)
-            except Exception:
-                if attempt == 1:
-                    raise
-                continue
-            if data:
-                return data
-        raise RuntimeError("empty audio from TTS engine")
-
-
 def synthesize(text, voice, rate):
     try:
         import edge_tts
@@ -356,32 +340,45 @@ def synthesize(text, voice, rate):
     paragraphs = split_paragraphs(text)
     para_chunks = [chunk_paragraph(p) for p in paragraphs]
     flat = [c for group in para_chunks for c in group]
+    results = [None] * len(flat)
+
+    async def job(sem, idx, chunk):
+        async with sem:
+            for _attempt in range(2):
+                try:
+                    data = await _synth_chunk(edge_tts, chunk, voice, rate)
+                except Exception:
+                    continue
+                if data:
+                    results[idx] = data
+                    return
 
     async def run_all():
         sem = asyncio.Semaphore(SYNTH_CONCURRENCY)
-        tasks = [asyncio.ensure_future(
-            _synth_chunk_retry(edge_tts, c, voice, rate, sem)) for c in flat]
-        done, _pending = await asyncio.wait(tasks, timeout=REQUEST_BUDGET)
-        return [t.result() if t in done and not t.cancelled()
-                and t.exception() is None else None for t in tasks]
+        await asyncio.gather(*[job(sem, i, c) for i, c in enumerate(flat)])
 
-    # Manual loop, closed WITHOUT the standard shutdown: asyncio.run
-    # cancels leftover tasks at shutdown and waits for their cleanup,
-    # and a stalled engine stream can ignore cancellation for minutes
-    # (observed live: requests hanging past 150-300 s despite every
-    # inner timeout). Abandoning the loop returns the finished audio
-    # on budget; the orphaned tasks die with the loop.
-    loop = asyncio.new_event_loop()
-    try:
-        results = loop.run_until_complete(run_all())
-    finally:
-        loop.close()
-    # A chunk can be unspeakable for the chosen voice (the classic case:
-    # a paragraph of foreign-script example sentences inside an English
-    # article - the engine returns NoAudioReceived), stall past its
-    # ceiling, or miss the request budget. None of those may kill the
-    # whole article: the chunk is skipped and the skip is disclosed in
-    # the response headers. Only a total failure is a 502.
+    def runner():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_all())
+        except Exception:
+            pass
+        finally:
+            loop.close()
+
+    # The synthesis loop runs in a daemon thread under a hard join
+    # deadline (see REQUEST_BUDGET): whatever chunks have landed in
+    # `results` by the deadline are what the response is built from.
+    # A chunk can be unspeakable for the chosen voice (the classic
+    # case: a paragraph of foreign-script example sentences inside an
+    # English article - the engine returns NoAudioReceived), stall, or
+    # miss the deadline. None of those may kill the whole article:
+    # the chunk is skipped and the skip is disclosed in the response
+    # headers. Only a total failure is a 502.
+    worker = threading.Thread(target=runner, daemon=True)
+    worker.start()
+    worker.join(REQUEST_BUDGET)
     skipped = sum(1 for r in results if r is None)
     if skipped == len(results):
         return None, (502, {"error": "synthesis_failed",
